@@ -1,12 +1,72 @@
 {
-  "team": "TODO-team-name",
+  "team": "NguyenAnhChuc",
   "schema_version": 1,
   "findings": [
     {
+      "fault_class": "arithmetic_error",
+      "evidence": {"metric": "configuration_audit", "observed": "Initial temperature was 1.6, verification was disabled, and the prompt did not define exact arithmetic.", "trace_ids": []},
+      "root_cause": "A high-variance sampling configuration and underspecified system prompt encouraged estimated or inconsistent totals.",
+      "suggested_fix": "Use temperature 0.2, enable verification, and require the exact integer discount formula in the system prompt."
+    },
+    {
+      "fault_class": "tool_overuse",
+      "evidence": {"metric": "tool_trace_and_configuration_audit", "observed": "Initial tool_budget was unlimited (0), loop_guard was false, and max_steps was 12. In the mitigated OpenRouter practice run, prac-020 still called get_discount despite having no coupon.", "trace_ids": ["prac-020"]},
+      "root_cause": "The agent had no effective per-request tool cap and no prompt rule limiting duplicate calls.",
+      "suggested_fix": "Set tool_budget to 3, max_steps to 6, enable loop_guard, and require each needed tool at most once."
+    },
+    {
+      "fault_class": "infinite_loop",
+      "evidence": {"metric": "configuration_audit", "observed": "Initial loop_guard was false, max_steps was 12, and no wrapper logic detected repeated actions.", "trace_ids": []},
+      "root_cause": "Repeated tool actions were allowed to continue until the large step limit.",
+      "suggested_fix": "Enable loop_guard, reduce max_steps, cap tools, and record repeated actions in wrapper telemetry."
+    },
+    {
       "fault_class": "latency_spike",
-      "evidence": {"metric": "latency_p95_ms", "observed": "TODO from your telemetry", "trace_ids": []},
-      "root_cause": "TODO: what config knob or behavior causes it?",
-      "suggested_fix": "TODO: config change and/or wrapper mitigation"
+      "evidence": {"metric": "latency_ms", "observed": "Initial timeout_ms was 0, cache was disabled, max_steps was 12, and completion allowance was 2000 tokens. The 120-request public run measured reported-latency P50 6543 ms, P95 10461 ms, and max 147269 ms.", "trace_ids": ["pub-003", "pub-086"]},
+      "root_cause": "Unbounded waits and long agent paths exposed requests to excessive tail latency.",
+      "suggested_fix": "Use a finite timeout, cache repeated requests, reduce step/token limits, and log wall and reported latency."
+    },
+    {
+      "fault_class": "pii_leak",
+      "evidence": {"metric": "pii_redaction", "observed": "Initial redact_pii was false and the original prompt had no privacy instruction. Public outputs removed raw phone/email values, but several retained a noisy '(lien he: [REDACTED])' suffix; the wrapper now removes contact data before the agent call and cleans this suffix.", "trace_ids": ["pub-010", "pub-014", "pub-100"]},
+      "root_cause": "Neither the agent output nor the wrapper enforced PII removal.",
+      "suggested_fix": "Enable redact_pii, prohibit echoing email/phone in the prompt, and redact wrapper output and telemetry."
+    },
+    {
+      "fault_class": "tool_failure",
+      "evidence": {"metric": "configuration_audit", "observed": "Initial normalize_unicode was false and catalog_override incorrectly marked a catalog item out of stock.", "trace_ids": []},
+      "root_cause": "Unicode inputs could miss tool matches and a stale catalog override contradicted the source of truth.",
+      "suggested_fix": "Enable Unicode normalization and clear catalog_override."
+    },
+    {
+      "fault_class": "error_spike",
+      "evidence": {"metric": "configuration_audit", "observed": "Initial tool_error_rate was 0.18 while retries were disabled.", "trace_ids": []},
+      "root_cause": "Injected intermittent tool failures had no retry path.",
+      "suggested_fix": "Remove the injected tool error rate and use a bounded two-attempt retry with short backoff."
+    },
+    {
+      "fault_class": "quality_drift",
+      "evidence": {"metric": "configuration_audit", "observed": "Initial session_drift_rate was 0.06 and context_reset_every was disabled.", "trace_ids": []},
+      "root_cause": "Long-lived session context accumulated deliberate quality degradation.",
+      "suggested_fix": "Set drift rate to zero, periodically reset context, and use low-temperature self-consistency."
+    },
+    {
+      "fault_class": "fabrication",
+      "evidence": {"metric": "prompt_audit", "observed": "The original prompt always requested a total and supplied no grounding or refusal policy.", "trace_ids": []},
+      "root_cause": "The model was encouraged to answer even when stock or catalog data did not support a purchase.",
+      "suggested_fix": "Require tool-grounded values and refuse unavailable or unknown items without emitting a total."
+    },
+    {
+      "fault_class": "prompt_injection",
+      "evidence": {"metric": "prompt_and_wrapper_audit", "observed": "The original prompt did not distinguish trusted tool data from instructions or prices embedded in order notes. The mitigation now removes appended GHI CHU/order-note blocks before the agent call and records input_sanitized in telemetry.", "trace_ids": []},
+      "root_cause": "Untrusted customer content shared the instruction channel without an explicit trust boundary.",
+      "suggested_fix": "Treat notes and quoted system messages as data only and accept prices exclusively from check_stock."
+    },
+    {
+      "fault_class": "cost_blowup",
+      "evidence": {"metric": "token_and_cost_usage", "observed": "Initial verbose_system was true, max_completion_tokens was 2000, context_size was 8, and the price tier was premium. The 120-request public run used 863919 total tokens (7199.3 average), estimated USD 0.909453, and received a cost sub-score of 0.1440.", "trace_ids": ["pub-003", "pub-086"]},
+      "root_cause": "Oversized context and completion limits increased token use for a short transactional task.",
+      "suggested_fix": "Disable verbose system text, reduce context/completion limits, use the economy tier, and cache repeated requests."
     }
   ]
 }

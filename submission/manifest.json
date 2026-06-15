@@ -1,1 +1,7 @@
-{"team": "TODO", "members": [], "notes": ""}
+{
+  "team": "NguyenAnhChuc",
+  "members": [
+    "Nguyen Anh Chuc"
+  ],
+  "notes": "Windows submission tested with the Linux x86_64 simulator through Docker Desktop and OpenRouter. Runtime evidence is recorded in logs/ and solution/findings.json."
+}
