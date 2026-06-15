@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import re
+import threading
 import time
 import unicodedata
 
@@ -15,6 +16,11 @@ from telemetry.redact import redact, redact_value
 
 _RECOVERABLE_STATUSES = {"loop", "max_steps", "no_action", "wrapper_error"}
 _TOOL_FIELDS = ("tool", "tool_name", "action", "name")
+_SAFE_TRACE_FIELDS = (
+    "available", "in_stock", "quantity", "available_qty", "unit_price",
+    "price", "percent", "discount_pct", "shipping", "shipping_cost",
+    "destination", "valid",
+)
 _NOTE_BLOCK = re.compile(
     r"\s+(?:ghi\s*ch[uú]|order\s+notes?|notes?)\s*[:\-]\s*.*$",
     re.IGNORECASE | re.DOTALL,
@@ -38,6 +44,7 @@ _UNAVAILABLE = re.compile(
     r"(?:kh[oô]ng\s+(?:c[oó]\s+s[aẵ]n|kh[aả]\s*d[uụ]ng|đ[uủ]|the\s+requested)|ch[iỉ]\s+c[oò]n\s+\d+|h[eế]t\s+h[aà]ng|out\s+of\s+stock|not\s+available|cannot\s+(?:process|provide|calculate)|kh[oô]ng\s+th[eể])",
     re.IGNORECASE,
 )
+_CACHE_WAIT_SECONDS = 30
 
 
 def _normalized_question(question):
@@ -71,6 +78,14 @@ def _validation_reason(question, result):
     return None
 
 
+def _result_rank(question, result):
+    """Prefer complete successful results without discarding a usable first try."""
+    status = result.get("status")
+    if status == "ok":
+        return 2 if _validation_reason(question, result) is None else 1
+    return 0
+
+
 def _cache_key(question, config):
     identity = {
         "question": _normalized_question(question),
@@ -94,6 +109,18 @@ def _trace_summary(trace):
                 break
         if step.get("error"):
             item["error"] = str(step["error"])
+        payloads = [step]
+        for field in ("result", "observation", "output"):
+            if isinstance(step.get(field), dict):
+                payloads.append(step[field])
+        facts = {}
+        for payload in payloads:
+            for field in _SAFE_TRACE_FIELDS:
+                value = payload.get(field)
+                if isinstance(value, (str, int, float, bool)):
+                    facts[field] = value
+        if facts:
+            item["facts"] = facts
         if item:
             summary.append(item)
     return summary[:20]
@@ -146,6 +173,7 @@ def _log_result(result, context, wall_ms, attempts, cache_hit):
         "input_sanitized": meta.get("wrapper_input_sanitized", False),
         "contact_removed": meta.get("wrapper_contact_removed", False),
         "validation_retries": meta.get("wrapper_validation_retries", []),
+        "validation_failed": meta.get("wrapper_validation_failed"),
     }))
 
 
@@ -156,11 +184,30 @@ def mitigate(call_next, question, config, context):
     key = _cache_key(safe_question, conf)
     cache = context.get("cache")
     lock = context.get("cache_lock")
+    inflight = None
+    owns_inflight = False
 
     if cache is not None and lock is not None:
         with lock:
             cached = cache.get(key)
-        if cached is not None:
+            if isinstance(cached, threading.Event):
+                inflight = cached
+            elif cached is not None:
+                result = copy.deepcopy(cached)
+            else:
+                inflight = threading.Event()
+                cache[key] = inflight
+                owns_inflight = True
+                result = None
+        if inflight is not None and not owns_inflight:
+            inflight.wait(_CACHE_WAIT_SECONDS)
+            with lock:
+                cached = cache.get(key)
+            if cached is not None and not isinstance(cached, threading.Event):
+                result = copy.deepcopy(cached)
+            else:
+                result = None
+        if result is not None:
             result = copy.deepcopy(cached)
             result.setdefault("meta", {})["wrapper_cache_hit"] = True
             result["meta"]["wrapper_input_sanitized"] = input_sanitized
@@ -174,6 +221,7 @@ def mitigate(call_next, question, config, context):
     started = time.perf_counter()
     attempts = 0
     result = None
+    best_result = None
     validation_retries = []
 
     while attempts < max_attempts:
@@ -189,6 +237,8 @@ def mitigate(call_next, question, config, context):
                     "wrapper_error": str(exc)[:300],
                 },
             })
+        if best_result is None or _result_rank(safe_question, result) > _result_rank(safe_question, best_result):
+            best_result = copy.deepcopy(result)
         validation_reason = None
         if result.get("status") == "ok":
             validation_reason = _validation_reason(safe_question, result)
@@ -199,16 +249,26 @@ def mitigate(call_next, question, config, context):
         if attempts < max_attempts and backoff_ms:
             time.sleep(backoff_ms / 1000.0)
 
+    result = best_result or result
+
     wall_ms = int((time.perf_counter() - started) * 1000)
     result["meta"]["wrapper_attempts"] = attempts
     result["meta"]["wrapper_cache_hit"] = False
     result["meta"]["wrapper_input_sanitized"] = input_sanitized
     result["meta"]["wrapper_contact_removed"] = contact_removed
     result["meta"]["wrapper_validation_retries"] = validation_retries
+    result["meta"]["wrapper_validation_failed"] = _validation_reason(safe_question, result)
 
-    if result.get("status") == "ok" and cache is not None and lock is not None:
+    cacheable = result.get("status") == "ok" and _validation_reason(safe_question, result) is None
+    if cache is not None and lock is not None and owns_inflight:
         with lock:
-            cache[key] = copy.deepcopy(result)
+            marker = cache.get(key)
+            if cacheable:
+                cache[key] = copy.deepcopy(result)
+            else:
+                cache.pop(key, None)
+            if isinstance(marker, threading.Event):
+                marker.set()
 
     _log_result(result, context, wall_ms, attempts, False)
     return result
