@@ -1,0 +1,21 @@
+{
+  "team": "NguyenAnhChuc",
+  "phase": "public",
+  "headline": 51.65,
+  "sub": {
+    "correct": 0.135,
+    "quality": 0.3039,
+    "error": 0.1417,
+    "latency": 0.8183,
+    "cost": 0.4137,
+    "drift": 0.0,
+    "prompt": 0.6272
+  },
+  "diag_f1": 0.952,
+  "n": 120,
+  "n_correct": 15,
+  "judge_mode": "offline",
+  "weights_hash": "e81a8ed58d93",
+  "key_hash": "9a800fa6968d",
+  "sig": "133e873e92b0bc49cd18af22de573fdb8ce4cbf0006224d1ee661047b5d6f4cd"
+}

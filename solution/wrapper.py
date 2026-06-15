@@ -40,7 +40,10 @@ _REDACTED_CONTACT = re.compile(
 _COUPON_REQUEST = re.compile(r"\b(?:coupon|m[aã]\s*gi[aả]m|d[uù]ng\s*m[aã]|[aá]p\s*d[uụ]ng\s*m[aã])\b", re.IGNORECASE)
 _DESTINATION_REQUEST = re.compile(r"\b(?:ship|giao)\b", re.IGNORECASE)
 _TOTAL_REQUEST = re.compile(r"\b(?:t[oổ]ng|thanh\s*to[aá]n|t[ií]nh\s*ti[eề]n)\b", re.IGNORECASE)
-_SUCCESS_TOTAL = re.compile(r"Tong cong:\s*\d+\s*VND", re.IGNORECASE)
+_SUCCESS_TOTAL = re.compile(
+    r"(?:Tong cong|T[oổ]ng c[oộ]ng):\s*\d+\s*VND",
+    re.IGNORECASE,
+)
 _UNAVAILABLE = re.compile(
     r"(?:kh[oô]ng\s+(?:c[oó]\s+s[aẵ]n|kh[aả]\s*d[uụ]ng|đ[uủ]|the\s+requested)|ch[iỉ]\s+c[oò]n\s+\d+|h[eế]t\s+h[aà]ng|out\s+of\s+stock|not\s+available|cannot\s+(?:process|provide|calculate)|kh[oô]ng\s+th[eể])",
     re.IGNORECASE,
@@ -81,6 +84,13 @@ def _validation_reason(question, result):
         return "missing_calc_shipping"
     if _TOTAL_REQUEST.search(question) and not _SUCCESS_TOTAL.search(answer):
         return "missing_final_total"
+    # Enforce strict parseable last-line: total must appear on the final line only
+    if _SUCCESS_TOTAL.search(answer):
+        last_line = answer.strip().splitlines()[-1].strip()
+        if not re.match(
+            r"^(?:Tong cong|T[oổ]ng c[oộ]ng):\s*\d+\s*VND$", last_line, re.IGNORECASE
+        ):
+            return "malformed_final_line"
     return None
 
 
@@ -219,7 +229,6 @@ def mitigate(call_next, question, config, context):
             else:
                 result = None
         if result is not None:
-            result = copy.deepcopy(cached)
             result.setdefault("meta", {})["wrapper_cache_hit"] = True
             result["meta"]["wrapper_input_sanitized"] = input_sanitized
             result["meta"]["wrapper_contact_removed"] = contact_removed
