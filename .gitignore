@@ -15,3 +15,8 @@ score.json
 dashboard_summary.json
 .env
 .DS_Store
+# local probes and deliberately retained invalid artifacts
+.*.tmp
+.phase_probe*.json
+*.invalid-*.json
+*.failed-*.json

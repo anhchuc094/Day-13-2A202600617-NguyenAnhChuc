@@ -92,9 +92,20 @@
 
 ### Trạng thái hiện tại
 
-- **Chưa có private run/score hợp lệ để phân tích.**
-- Không ghi metric, trace ID hay kết luận private trước khi chạy bộ private thật.
-- Không dùng public question/answer để hardcode; private có paraphrase và injection twist.
+- Đã nhận private simulator và tạo artifact đúng `phase=private` với 80 QID `prv-*`.
+- Lượt hiện tại có 80/80 `wrapper_error` và 80 `answer=null`.
+- Telemetry xác nhận nguyên nhân đồng nhất: OpenRouter HTTP 402 `Insufficient credits`. Key đã được gửi nhưng tài khoản/key không có credit; agent chưa chạy nên không thể sinh answer.
+- Chưa có private scorer trong workspace, nên chưa có headline/sub-score hợp lệ.
+- Không dùng public/private question hoặc answer để hardcode; private có paraphrase và injection twist.
+
+### Cải thiện sau khi đọc private
+
+- Phát hiện 20/80 câu injection dùng `GHI CHU KHACH:` với giá giả 1.000.000 VND; mở rộng sanitizer và test cả 20 câu.
+- Đổi `solution/prompt.txt` sang tiếng Việt, bắt buộc trả lời tiếng Việt và giữ dòng cuối `Tong cong: <số nguyên> VND`.
+- Rút prompt tiếng Việt xuống dưới 600 ký tự để giữ prompt score và giảm token.
+- Thêm nhận diện lỗi API vĩnh viễn 400/401/402/403/404; wrapper dừng sau lần đầu thay vì retry lỗi hết credit/key sai.
+- `run_openrouter.ps1` không ghi đè output tốt nếu toàn bộ request lỗi; lưu lượt lỗi thành `.failed-*` và hướng người chạy xem log.
+- Cần nạp credit hoặc đổi sang key còn credit, sau đó chạy lại private để có answer và metric hợp lệ.
 
 ### Quy trình khi nhận private
 

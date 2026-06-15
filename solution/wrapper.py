@@ -22,9 +22,10 @@ _SAFE_TRACE_FIELDS = (
     "destination", "valid",
 )
 _NOTE_BLOCK = re.compile(
-    r"\s+(?:ghi\s*ch[uú]|order\s+notes?|notes?)\s*[:\-]\s*.*$",
+    r"\s+(?:ghi\s*ch[uú](?:\s+kh[aá]ch(?:\s+h[aà]ng)?)?|order\s+notes?|notes?)\s*[:\-]\s*.*$",
     re.IGNORECASE | re.DOTALL,
 )
+_ORDER_PREFIX = re.compile(r"^\s*order\s*:\s*", re.IGNORECASE)
 _CONTACT_BLOCK = re.compile(
     r"\s*(?:[,.?;:]?\s*(?:li[eê]n\s*h[eệ]|g[oọ]i\s*(?:m[iì]nh)?\s*qua)\s*)?"
     r"(?:email\s*)?[\w.+-]+@[\w-]+\.[\w.-]+"
@@ -45,6 +46,10 @@ _UNAVAILABLE = re.compile(
     re.IGNORECASE,
 )
 _CACHE_WAIT_SECONDS = 30
+_PERMANENT_API_ERROR = re.compile(
+    r"(?:error\s+code:\s*(?:400|401|402|403|404)|insufficient\s+credits|invalid\s+api\s+key)",
+    re.IGNORECASE,
+)
 
 
 def _normalized_question(question):
@@ -55,6 +60,7 @@ def _normalized_question(question):
 def _sanitize_question(question):
     """Remove appended order-note instructions while preserving the order itself."""
     normalized = _normalized_question(question)
+    normalized = _ORDER_PREFIX.sub("", normalized)
     sanitized, note_count = _NOTE_BLOCK.subn("", normalized)
     sanitized, contact_count = _CONTACT_BLOCK.subn("", sanitized)
     return sanitized.strip(" ,.;"), note_count > 0, contact_count > 0
@@ -84,6 +90,11 @@ def _result_rank(question, result):
     if status == "ok":
         return 2 if _validation_reason(question, result) is None else 1
     return 0
+
+
+def _is_permanent_error(result):
+    meta = result.get("meta") or {}
+    return bool(_PERMANENT_API_ERROR.search(str(meta.get("wrapper_error") or "")))
 
 
 def _cache_key(question, config):
@@ -244,6 +255,8 @@ def mitigate(call_next, question, config, context):
             validation_reason = _validation_reason(safe_question, result)
             if validation_reason:
                 validation_retries.append(validation_reason)
+        if _is_permanent_error(result):
+            break
         if result.get("status") not in _RECOVERABLE_STATUSES and not validation_reason:
             break
         if attempts < max_attempts and backoff_ms:

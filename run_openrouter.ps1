@@ -122,7 +122,14 @@ if ($run.phase -ne $Phase) {
     throw "Phase mismatch: requested '$Phase' but the binary produced '$($run.phase)'. Download the correct $Phase simulator binary. Existing output was not overwritten."
 }
 
+$nonOk = @($run.results | Where-Object { $_.status -ne "ok" })
+if ([int]$run.n -gt 0 -and $nonOk.Count -eq [int]$run.n) {
+    $failedName = ".$Output.failed-$PID.json"
+    $failedPath = Join-Path $PSScriptRoot $failedName
+    Move-Item -LiteralPath $temporaryOutputPath -Destination $failedPath -Force
+    throw "All $($run.n) requests failed. Existing output was not overwritten. Failed run: $failedPath. Check logs for wrapper_error details (for example OpenRouter 401/402/403)."
+}
+
 Move-Item -LiteralPath $temporaryOutputPath -Destination $outputPath -Force
-$errors = @($run.results | Where-Object { $_.status -ne "ok" })
-Write-Host "Finished: $($run.n) results, $($errors.Count) non-ok."
+Write-Host "Finished: $($run.n) results, $($nonOk.Count) non-ok."
 Write-Host "Output: $outputPath"
